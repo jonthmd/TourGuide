@@ -7,14 +7,7 @@ import com.openclassrooms.tourguide.user.UserReward;
 
 import java.time.LocalDateTime;
 import java.time.ZoneOffset;
-import java.util.ArrayList;
-import java.util.Date;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Locale;
-import java.util.Map;
-import java.util.Random;
-import java.util.UUID;
+import java.util.*;
 import java.util.stream.Collectors;
 import java.util.stream.IntStream;
 
@@ -110,9 +103,10 @@ public class TourGuideService {
 	//with stream.
 	public List<Attraction> getNearByAttractions(VisitedLocation visitedLocation) {
 		return gpsUtil.getAttractions().stream()
-				.filter(attraction -> rewardsService.isWithinAttractionProximity(
-						attraction, visitedLocation.location))
-				.toList();
+				.sorted(Comparator.comparingDouble(
+						(attraction) -> rewardsService.getDistance(visitedLocation.location, attraction)))
+				.limit(5)
+				.collect(Collectors.toList());
 	}
 
 	private void addShutDownHook() {
