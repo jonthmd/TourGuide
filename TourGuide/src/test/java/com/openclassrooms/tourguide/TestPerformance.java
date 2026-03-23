@@ -5,10 +5,13 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import java.util.ArrayList;
 import java.util.Date;
 import java.util.List;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
+import java.util.stream.Collectors;
 
 import org.apache.commons.lang3.time.StopWatch;
-import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.Test;
 
 import gpsUtil.GpsUtil;
@@ -52,18 +55,27 @@ public class TestPerformance {
 		RewardsService rewardsService = new RewardsService(gpsUtil, new RewardCentral());
 		// Users should be incremented up to 100,000, and test finishes within 15
 		// minutes
-		InternalTestHelper.setInternalUserNumber(100);
+		InternalTestHelper.setInternalUserNumber(100000);
 		TourGuideService tourGuideService = new TourGuideService(gpsUtil, rewardsService);
+		ExecutorService executor = Executors.newFixedThreadPool(200);
 
 		List<User> allUsers = new ArrayList<>();
 		allUsers = tourGuideService.getAllUsers();
 
 		StopWatch stopWatch = new StopWatch();
 		stopWatch.start();
+		List<CompletableFuture<VisitedLocation>> listVisitedLocationFuture = new ArrayList<CompletableFuture<VisitedLocation>>();
 		for (User user : allUsers) {
-			tourGuideService.trackUserLocation(user);
+			listVisitedLocationFuture.add(tourGuideService.trackUserLocation(user, executor));
+
 		}
+		CompletableFuture<Void> allCompletableFuture =  CompletableFuture.allOf(listVisitedLocationFuture.toArray(new CompletableFuture[0]));
+		allCompletableFuture.join();
+
+		boolean allUserHaveVisitedLocation = allUsers.stream()
+				.allMatch(u -> u.getVisitedLocations().size()>0);
 		stopWatch.stop();
+		executor.shutdown();
 		tourGuideService.tracker.stopTracking();
 
 		System.out.println("highVolumeTrackLocation: Time Elapsed: "
@@ -79,7 +91,7 @@ public class TestPerformance {
 
 		// Users should be incremented up to 100,000, and test finishes within 20
 		// minutes
-		InternalTestHelper.setInternalUserNumber(100);
+		InternalTestHelper.setInternalUserNumber(100000);
 		StopWatch stopWatch = new StopWatch();
 		stopWatch.start();
 		TourGuideService tourGuideService = new TourGuideService(gpsUtil, rewardsService);
@@ -89,7 +101,15 @@ public class TestPerformance {
 		allUsers = tourGuideService.getAllUsers();
 		allUsers.forEach(u -> u.addToVisitedLocations(new VisitedLocation(u.getUserId(), attraction, new Date())));
 
-		allUsers.forEach(u -> rewardsService.calculateRewards(u));
+		ExecutorService executor = Executors.newFixedThreadPool(200);
+
+		List<CompletableFuture<Void>> futures = allUsers.stream()
+				.map(u -> rewardsService.calculateRewards(u, executor))
+				.collect(Collectors.toList());
+
+		CompletableFuture.allOf(futures.toArray(new CompletableFuture[0])).join();
+
+		executor.shutdown();
 
 		for (User user : allUsers) {
 			assertTrue(user.getUserRewards().size() > 0);

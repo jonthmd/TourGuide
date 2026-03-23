@@ -8,6 +8,9 @@ import com.openclassrooms.tourguide.user.UserReward;
 import java.time.LocalDateTime;
 import java.time.ZoneOffset;
 import java.util.*;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.Executor;
+import java.util.function.Supplier;
 import java.util.stream.Collectors;
 import java.util.stream.IntStream;
 
@@ -54,7 +57,7 @@ public class TourGuideService {
 
 	public VisitedLocation getUserLocation(User user) {
 		VisitedLocation visitedLocation = (user.getVisitedLocations().size() > 0) ? user.getLastVisitedLocation()
-				: trackUserLocation(user);
+				: trackUserLocation(user).join();
 		return visitedLocation;
 	}
 
@@ -81,11 +84,43 @@ public class TourGuideService {
 		return providers;
 	}
 
-	public VisitedLocation trackUserLocation(User user) {
-		VisitedLocation visitedLocation = gpsUtil.getUserLocation(user.getUserId());
-		user.addToVisitedLocations(visitedLocation);
-		rewardsService.calculateRewards(user);
-		return visitedLocation;
+//	public VisitedLocation trackUserLocation(User user) {
+//		VisitedLocation visitedLocation = gpsUtil.getUserLocation(user.getUserId());
+//		user.addToVisitedLocations(visitedLocation);
+//		rewardsService.calculateRewards(user);
+//		return visitedLocation;
+//	}
+
+//	public CompletableFuture<VisitedLocation> trackUserLocation(User user) {
+//		return CompletableFuture.supplyAsync(()->{
+//            try {
+//				VisitedLocation visitedLocation = gpsUtil.getUserLocation(user.getUserId());
+//                user.addToVisitedLocations(visitedLocation);
+//                rewardsService.calculateRewards(user);
+//				return visitedLocation;
+//            } catch (Exception e) {
+//                throw new RuntimeException(e);
+//            }
+//            });
+//	}
+
+	public CompletableFuture<VisitedLocation>  trackUserLocation(User user, Executor executor) {
+
+		Supplier<VisitedLocation> task = () -> gpsUtil.getUserLocation(user.getUserId());
+
+		CompletableFuture<VisitedLocation> visitedLocationFuture =
+				(executor != null ? CompletableFuture.supplyAsync(task, executor)
+						: CompletableFuture.supplyAsync(task))
+						.thenCompose(visitedLocation -> {user.addToVisitedLocations(visitedLocation);
+							return rewardsService
+									.calculateRewards(user, executor)
+									.thenApply(calculateReward -> visitedLocation);});
+
+		return visitedLocationFuture;
+	}
+
+	public CompletableFuture<VisitedLocation>  trackUserLocation(User user){
+		return trackUserLocation(user, null);
 	}
 
 //	public List<Attraction> getNearByAttractions(VisitedLocation visitedLocation) {
